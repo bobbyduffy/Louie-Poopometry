@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { db } from "./firebase.js";
-import { ref, push, remove, onValue } from "firebase/database";
 
 // --- Helpers ---
 const fmt = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -156,33 +154,38 @@ export default function App() {
   const [form, setForm] = useState({ type: "pee", location: "outside", notes: "" });
   const [deleting, setDeleting] = useState(null);
 
-  // Subscribe to Firebase — live sync across devices
-  useEffect(() => {
-    const entriesRef = ref(db, "entries");
-    const unsub = onValue(entriesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const arr = Object.entries(data).map(([fbKey, val]) => ({ ...val, fbKey }));
-        arr.sort((a, b) => b.time.localeCompare(a.time));
-        setEntries(arr);
-      } else {
-        setEntries([]);
-      }
+  const fetchEntries = useCallback(async () => {
+    try {
+      const res = await fetch("/api/entries");
+      const data = await res.json();
+      setEntries(data);
+    } catch (err) {
+      console.error("Failed to fetch entries:", err);
+    } finally {
       setLoading(false);
-    }, () => setLoading(false));
-    return unsub;
+    }
   }, []);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
 
   const addEntry = async () => {
     const entry = { ...form, time: new Date().toISOString() };
-    await push(ref(db, "entries"), entry);
+    await fetch("/api/entries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
     setForm({ type: "pee", location: "outside", notes: "" });
     setView("log");
+    fetchEntries();
   };
 
-  const deleteEntry = async (fbKey) => {
-    await remove(ref(db, `entries/${fbKey}`));
+  const deleteEntry = async (id) => {
+    await fetch(`/api/entries?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     setDeleting(null);
+    fetchEntries();
   };
 
   // Group by date
@@ -320,7 +323,7 @@ export default function App() {
                   <span>{grouped[dk].length} break{grouped[dk].length !== 1 ? "s" : ""}</span>
                 </div>
                 {grouped[dk].map((e) => (
-                  <div key={e.fbKey} style={{
+                  <div key={e.id} style={{
                     display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
                     background: C.card, borderRadius: 14, marginBottom: 6, boxShadow: C.shadow,
                     border: e.location === "inside" ? `2px solid ${C.red}33` : `1.5px solid ${C.border}`,
@@ -341,9 +344,9 @@ export default function App() {
                       {e.notes && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.notes}</div>}
                     </div>
                     <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, whiteSpace: "nowrap" }}>{fmt(e.time)}</div>
-                    {deleting === e.fbKey ? (
+                    {deleting === e.id ? (
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => deleteEntry(e.fbKey)} style={{
+                        <button onClick={() => deleteEntry(e.id)} style={{
                           background: C.red, color: "#FFF", border: "none", borderRadius: 8,
                           padding: "4px 10px", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "'Nunito', sans-serif",
                         }}>Delete</button>
@@ -353,7 +356,7 @@ export default function App() {
                         }}>✕</button>
                       </div>
                     ) : (
-                      <button onClick={() => setDeleting(e.fbKey)} style={{
+                      <button onClick={() => setDeleting(e.id)} style={{
                         background: "none", border: "none", fontSize: 16, cursor: "pointer",
                         color: C.textMuted, padding: 4, opacity: 0.5,
                       }}>×</button>
