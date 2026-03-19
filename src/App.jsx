@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { db } from "./firebase.js";
 import { ref, push, remove, onValue } from "firebase/database";
+
 // --- Helpers ---
 const fmt = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const fmtDate = (iso) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
@@ -26,6 +27,7 @@ const hourLabel = (h) => {
   if (h === 12) return "12p";
   return `${h - 12}p`;
 };
+
 // --- Palette ---
 const C = {
   bg: "#FAF6F0", card: "#FFFFFF", accent: "#E8843C", accentLight: "#FFF0E5",
@@ -36,6 +38,7 @@ const C = {
 };
 const typeEmoji = { pee: "💧", poop: "💩", both: "💧💩" };
 const locEmoji = { outside: "🌳", inside: "🏠" };
+
 // --- Small Components ---
 function Pill({ active, onClick, children, color = C.accent }) {
   return (
@@ -59,6 +62,7 @@ function StatCard({ emoji, label, value, color, bg }) {
     </div>
   );
 }
+
 // --- Charts ---
 function TimeHeatmap({ entries }) {
   const last7 = Array.from({ length: 7 }, (_, i) => daysAgo(6 - i));
@@ -146,6 +150,7 @@ function WeeklySummary({ entries }) {
     </div>
   );
 }
+
 // --- Interval Stats ---
 function IntervalStats({ entries }) {
   const sevenDaysAgo = new Date();
@@ -195,6 +200,7 @@ function IntervalStats({ entries }) {
     </div>
   );
 }
+
 // --- Main App ---
 export default function App() {
   const [entries, setEntries] = useState([]);
@@ -204,7 +210,7 @@ export default function App() {
   const [deleting, setDeleting] = useState(null);
   const [retroMode, setRetroMode] = useState(false);
   const [retroTime, setRetroTime] = useState("");
-  // Subscribe to Firebase — live sync across devices
+
   useEffect(() => {
     const entriesRef = ref(db, "entries");
     const unsub = onValue(entriesRef, (snapshot) => {
@@ -220,6 +226,7 @@ export default function App() {
     }, () => setLoading(false));
     return unsub;
   }, []);
+
   const addEntry = async () => {
     const time = retroMode && retroTime ? new Date(retroTime).toISOString() : new Date().toISOString();
     const entry = { ...form, time };
@@ -233,7 +240,7 @@ export default function App() {
     await remove(ref(db, `entries/${fbKey}`));
     setDeleting(null);
   };
-  // Group by date
+
   const grouped = {};
   entries.forEach((e) => {
     const k = toDateKey(e.time);
@@ -241,6 +248,7 @@ export default function App() {
     grouped[k].push(e);
   });
   const dateKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -248,9 +256,9 @@ export default function App() {
       </div>
     );
   }
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Nunito', sans-serif", color: C.text, paddingBottom: 100 }}>
-      {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${C.accent}, #D4722E)`, color: "#FFF",
         padding: "28px 20px 20px", borderRadius: "0 0 28px 28px",
@@ -266,7 +274,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      {/* Nav */}
+
       <div style={{ display: "flex", gap: 6, padding: "16px 16px 0", justifyContent: "center" }}>
         {[
           { key: "log", icon: "📋", label: "Log" },
@@ -285,13 +293,11 @@ export default function App() {
           </button>
         ))}
       </div>
+
       <div style={{ padding: 16, maxWidth: 520, margin: "0 auto" }}>
-        {/* ADD VIEW */}
+
         {view === "add" && (
-          <div style={{
-            background: C.card, borderRadius: 20, padding: 24, boxShadow: C.shadow,
-            animation: "fadeIn .3s ease",
-          }}>
+          <div style={{ background: C.card, borderRadius: 20, padding: 24, boxShadow: C.shadow, animation: "fadeIn .3s ease" }}>
             <h2 style={{ margin: "0 0 20px", fontSize: 20, fontWeight: 800 }}>{retroMode ? "📅 Log Past Event" : "🐾 New Entry"}</h2>
             {retroMode && (
               <div style={{ marginBottom: 20 }}>
@@ -355,7 +361,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {/* LOG VIEW */}
+
         {view === "log" && (
           <div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -429,7 +435,7 @@ export default function App() {
             ))}
           </div>
         )}
-        {/* STATS VIEW */}
+
         {view === "stats" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "fadeIn .3s ease" }}>
             <div style={{ background: C.card, borderRadius: 20, padding: 20, boxShadow: C.shadow }}>
@@ -458,3 +464,4 @@ export default function App() {
       </div>
     </div>
   );
+}
