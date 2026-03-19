@@ -1,18 +1,24 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { db } from "./firebase.js";
 import { ref, push, remove, onValue } from "firebase/database";
-
 // --- Helpers ---
 const fmt = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const fmtDate = (iso) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-const toDateKey = (iso) => new Date(iso).toISOString().slice(0, 10);
+const toDateKey = (iso) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 const isToday = (iso) => toDateKey(iso) === toDateKey(new Date().toISOString());
 const daysAgo = (n) => {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return toDateKey(d.toISOString());
 };
-
+const toDatetimeLocalStr = (date) => {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourLabel = (h) => {
   if (h === 0) return "12a";
@@ -20,7 +26,6 @@ const hourLabel = (h) => {
   if (h === 12) return "12p";
   return `${h - 12}p`;
 };
-
 // --- Palette ---
 const C = {
   bg: "#FAF6F0", card: "#FFFFFF", accent: "#E8843C", accentLight: "#FFF0E5",
@@ -29,10 +34,8 @@ const C = {
   text: "#2D2319", textMuted: "#8C7E72", border: "#EDE6DC",
   shadow: "0 2px 12px rgba(45,35,25,0.06)",
 };
-
 const typeEmoji = { pee: "💧", poop: "💩", both: "💧💩" };
 const locEmoji = { outside: "🌳", inside: "🏠" };
-
 // --- Small Components ---
 function Pill({ active, onClick, children, color = C.accent }) {
   return (
@@ -44,7 +47,6 @@ function Pill({ active, onClick, children, color = C.accent }) {
     }}>{children}</button>
   );
 }
-
 function StatCard({ emoji, label, value, color, bg }) {
   return (
     <div style={{
@@ -57,7 +59,6 @@ function StatCard({ emoji, label, value, color, bg }) {
     </div>
   );
 }
-
 // --- Charts ---
 function TimeHeatmap({ entries }) {
   const last7 = Array.from({ length: 7 }, (_, i) => daysAgo(6 - i));
@@ -93,7 +94,6 @@ function TimeHeatmap({ entries }) {
     </div>
   );
 }
-
 function AccidentChart({ entries }) {
   const last14 = Array.from({ length: 14 }, (_, i) => daysAgo(13 - i));
   const data = last14.map((d) => {
@@ -127,7 +127,6 @@ function AccidentChart({ entries }) {
     </div>
   );
 }
-
 function WeeklySummary({ entries }) {
   const thisWeekStart = new Date();
   thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
@@ -147,7 +146,55 @@ function WeeklySummary({ entries }) {
     </div>
   );
 }
-
+// --- Interval Stats ---
+function IntervalStats({ entries }) {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const poopAll = entries.filter(e => e.type === "poop" || e.type === "both").sort((a, b) => a.time.localeCompare(b.time));
+  const peeAll  = entries.filter(e => e.type === "pee"  || e.type === "both").sort((a, b) => a.time.localeCompare(b.time));
+  const poop7   = poopAll.filter(e => new Date(e.time) >= sevenDaysAgo);
+  const pee7    = peeAll.filter(e => new Date(e.time) >= sevenDaysAgo);
+  function avgInterval(arr) {
+    if (arr.length < 2) return null;
+    let total = 0;
+    for (let i = 1; i < arr.length; i++) total += new Date(arr[i].time) - new Date(arr[i-1].time);
+    return total / (arr.length - 1);
+  }
+  function maxInterval(arr) {
+    if (arr.length < 2) return null;
+    let max = 0;
+    for (let i = 1; i < arr.length; i++) { const g = new Date(arr[i].time) - new Date(arr[i-1].time); if (g > max) max = g; }
+    return max;
+  }
+  function fmtMs(ms) {
+    if (ms === null) return "—";
+    const totalMins = Math.round(ms / 60000);
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    if (h === 0) return `${m}m`;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.textMuted, marginBottom: 8 }}>💩 Poop Intervals</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <StatCard emoji="⌀" label="Avg (all time)" value={fmtMs(avgInterval(poopAll))} color={C.accent} bg={C.accentLight} />
+          <StatCard emoji="📅" label="Avg (7 days)"   value={fmtMs(avgInterval(poop7))}   color={C.accent} bg={C.accentLight} />
+          <StatCard emoji="⏳" label="Longest gap"    value={fmtMs(maxInterval(poopAll))} color={C.accent} bg={C.accentLight} />
+        </div>
+      </div>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.textMuted, marginBottom: 8 }}>💧 Pee Intervals</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <StatCard emoji="⌀" label="Avg (all time)" value={fmtMs(avgInterval(peeAll))} color={C.blue} bg={C.blueLight} />
+          <StatCard emoji="📅" label="Avg (7 days)"   value={fmtMs(avgInterval(pee7))}   color={C.blue} bg={C.blueLight} />
+          <StatCard emoji="⏳" label="Longest gap"    value={fmtMs(maxInterval(peeAll))} color={C.blue} bg={C.blueLight} />
+        </div>
+      </div>
+    </div>
+  );
+}
 // --- Main App ---
 export default function App() {
   const [entries, setEntries] = useState([]);
@@ -155,7 +202,8 @@ export default function App() {
   const [view, setView] = useState("log");
   const [form, setForm] = useState({ type: "pee", location: "outside", notes: "" });
   const [deleting, setDeleting] = useState(null);
-
+  const [retroMode, setRetroMode] = useState(false);
+  const [retroTime, setRetroTime] = useState("");
   // Subscribe to Firebase — live sync across devices
   useEffect(() => {
     const entriesRef = ref(db, "entries");
@@ -172,19 +220,19 @@ export default function App() {
     }, () => setLoading(false));
     return unsub;
   }, []);
-
   const addEntry = async () => {
-    const entry = { ...form, time: new Date().toISOString() };
+    const time = retroMode && retroTime ? new Date(retroTime).toISOString() : new Date().toISOString();
+    const entry = { ...form, time };
     await push(ref(db, "entries"), entry);
     setForm({ type: "pee", location: "outside", notes: "" });
+    setRetroMode(false);
+    setRetroTime("");
     setView("log");
   };
-
   const deleteEntry = async (fbKey) => {
     await remove(ref(db, `entries/${fbKey}`));
     setDeleting(null);
   };
-
   // Group by date
   const grouped = {};
   entries.forEach((e) => {
@@ -193,7 +241,6 @@ export default function App() {
     grouped[k].push(e);
   });
   const dateKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -201,7 +248,6 @@ export default function App() {
       </div>
     );
   }
-
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Nunito', sans-serif", color: C.text, paddingBottom: 100 }}>
       {/* Header */}
@@ -220,7 +266,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
       {/* Nav */}
       <div style={{ display: "flex", gap: 6, padding: "16px 16px 0", justifyContent: "center" }}>
         {[
@@ -228,7 +273,7 @@ export default function App() {
           { key: "stats", icon: "📊", label: "Stats" },
           { key: "add", icon: "➕", label: "Add" },
         ].map((t) => (
-          <button key={t.key} onClick={() => setView(t.key)} style={{
+          <button key={t.key} onClick={() => { setRetroMode(false); setRetroTime(""); setView(t.key); }} style={{
             flex: 1, maxWidth: 140, padding: "10px 0", borderRadius: 14,
             border: view === t.key ? `2px solid ${C.accent}` : `2px solid ${C.border}`,
             background: view === t.key ? C.accentLight : C.card,
@@ -240,17 +285,32 @@ export default function App() {
           </button>
         ))}
       </div>
-
       <div style={{ padding: 16, maxWidth: 520, margin: "0 auto" }}>
-
         {/* ADD VIEW */}
         {view === "add" && (
           <div style={{
             background: C.card, borderRadius: 20, padding: 24, boxShadow: C.shadow,
             animation: "fadeIn .3s ease",
           }}>
-            <h2 style={{ margin: "0 0 20px", fontSize: 20, fontWeight: 800 }}>🐾 New Entry</h2>
-
+            <h2 style={{ margin: "0 0 20px", fontSize: 20, fontWeight: 800 }}>{retroMode ? "📅 Log Past Event" : "🐾 New Entry"}</h2>
+            {retroMode && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: C.textMuted, marginBottom: 8, display: "block" }}>Date & Time</label>
+                <input
+                  type="datetime-local"
+                  value={retroTime}
+                  max={toDatetimeLocalStr(new Date())}
+                  onChange={(e) => setRetroTime(e.target.value)}
+                  style={{
+                    width: "100%", boxSizing: "border-box", padding: "12px 14px", borderRadius: 12,
+                    border: `2px solid ${C.border}`, fontFamily: "'Nunito', sans-serif", fontSize: 14,
+                    outline: "none", transition: "border .2s", background: C.bg,
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = C.accent)}
+                  onBlur={(e) => (e.target.style.borderColor = C.border)}
+                />
+              </div>
+            )}
             <label style={{ fontSize: 13, fontWeight: 700, color: C.textMuted, marginBottom: 8, display: "block" }}>Type</label>
             <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
               {["pee", "poop", "both"].map((t) => (
@@ -259,7 +319,6 @@ export default function App() {
                 </Pill>
               ))}
             </div>
-
             <label style={{ fontSize: 13, fontWeight: 700, color: C.textMuted, marginBottom: 8, display: "block" }}>Location</label>
             <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
               <Pill active={form.location === "outside"} onClick={() => setForm({ ...form, location: "outside" })} color={C.green}>
@@ -269,7 +328,6 @@ export default function App() {
                 🏠 Inside (Accident)
               </Pill>
             </div>
-
             <label style={{ fontSize: 13, fontWeight: 700, color: C.textMuted, marginBottom: 8, display: "block" }}>Notes (optional)</label>
             <textarea
               value={form.notes}
@@ -284,7 +342,6 @@ export default function App() {
               onFocus={(e) => (e.target.style.borderColor = C.accent)}
               onBlur={(e) => (e.target.style.borderColor = C.border)}
             />
-
             <button onClick={addEntry} style={{
               marginTop: 20, width: "100%", padding: "14px 0", borderRadius: 14,
               background: `linear-gradient(135deg, ${C.accent}, #D4722E)`, color: "#FFF",
@@ -294,14 +351,22 @@ export default function App() {
               onMouseDown={(e) => (e.target.style.transform = "scale(0.97)")}
               onMouseUp={(e) => (e.target.style.transform = "scale(1)")}
             >
-              Log It! 🐾
+              {retroMode ? "Log Past Event! 📅" : "Log It! 🐾"}
             </button>
           </div>
         )}
-
         {/* LOG VIEW */}
         {view === "log" && (
           <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <button onClick={() => { setRetroMode(true); setRetroTime(toDatetimeLocalStr(new Date())); setView("add"); }} style={{
+                padding: "8px 16px", borderRadius: 12, border: `2px solid ${C.border}`,
+                background: C.card, color: C.textMuted, fontFamily: "'Nunito', sans-serif",
+                fontWeight: 700, fontSize: 13, cursor: "pointer", transition: "all .2s",
+              }}>
+                📅 Log Past Event
+              </button>
+            </div>
             {dateKeys.length === 0 && (
               <div style={{ textAlign: "center", padding: "48px 20px", color: C.textMuted }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🐕</div>
@@ -364,13 +429,16 @@ export default function App() {
             ))}
           </div>
         )}
-
         {/* STATS VIEW */}
         {view === "stats" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "fadeIn .3s ease" }}>
             <div style={{ background: C.card, borderRadius: 20, padding: 20, boxShadow: C.shadow }}>
               <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 800 }}>📅 This Week</h3>
               <WeeklySummary entries={entries} />
+            </div>
+            <div style={{ background: C.card, borderRadius: 20, padding: 20, boxShadow: C.shadow }}>
+              <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 800 }}>⏱ Time Between Breaks</h3>
+              <IntervalStats entries={entries} />
             </div>
             <div style={{ background: C.card, borderRadius: 20, padding: 20, boxShadow: C.shadow }}>
               <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 800 }}>📊 Last 14 Days</h3>
@@ -390,4 +458,3 @@ export default function App() {
       </div>
     </div>
   );
-}
